@@ -13,6 +13,7 @@ interface ImageUploadCardProps {
   showCamera?: boolean;
   disabled?: boolean;
   disabledMessage?: string;
+  enforceAspect?: number;
 }
 
 const ImageUploadCard: React.FC<ImageUploadCardProps> = ({
@@ -24,7 +25,8 @@ const ImageUploadCard: React.FC<ImageUploadCardProps> = ({
   className = '',
   showCamera = false,
   disabled = false,
-  disabledMessage = "Complete Step 1 Identity first"
+  disabledMessage = "Complete Step 1 Identity first",
+  enforceAspect = undefined
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
@@ -33,23 +35,43 @@ const ImageUploadCard: React.FC<ImageUploadCardProps> = ({
       const img = new Image();
       img.src = base64;
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
+        let sx = 0;
+        let sy = 0;
+        let sw = img.width;
+        let sh = img.height;
 
-        if (width > maxWidth) {
-          height = (maxWidth / width) * height;
-          width = maxWidth;
+        if (enforceAspect) {
+            const currentAspect = img.width / img.height;
+            if (currentAspect > enforceAspect) {
+                // Too wide, crop sides
+                sw = img.height * enforceAspect;
+                sx = (img.width - sw) / 2;
+            } else if (currentAspect < enforceAspect) {
+                // Too tall, crop top and bottom
+                sh = img.width / enforceAspect;
+                sy = (img.height - sh) / 2;
+            }
         }
 
-        canvas.width = width;
-        canvas.height = height;
+        let finalWidth = sw;
+        let finalHeight = sh;
+
+        if (finalWidth > maxWidth) {
+          finalHeight = (maxWidth / finalWidth) * finalHeight;
+          finalWidth = maxWidth;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = finalWidth;
+        canvas.height = finalHeight;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
+          ctx.fillRect(0, 0, finalWidth, finalHeight);
+          // Draw using the source crop rect and destination rect
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, finalWidth, finalHeight);
         }
+        
         // Lossless PNG for cleaner jewelry details (prevents JPEG artifacts)
         resolve(canvas.toDataURL('image/png', 1.0));
       };
