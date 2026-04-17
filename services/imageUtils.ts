@@ -281,4 +281,38 @@ export const padImageToSquare = async (base64: string): Promise<string> => {
     };
     img.onerror = reject;
   });
+};
+
+export const removeSquarePadding = async (paddedBase64: string, originalBase64: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const origImg = new Image();
+    origImg.src = originalBase64;
+    origImg.onload = () => {
+      const padImg = new Image();
+      padImg.src = paddedBase64;
+      padImg.onload = () => {
+        const canvas = document.createElement("canvas");
+        // Revert to exactly vertical or horizontal dimensions
+        canvas.width = origImg.width;
+        canvas.height = origImg.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve(paddedBase64);
+
+        const dim = Math.max(origImg.width, origImg.height);
+        const dx = (dim - origImg.width) / 2;
+        const dy = (dim - origImg.height) / 2;
+
+        // Draw only the central portion that corresponds to the original unpadded image
+        ctx.drawImage(
+          padImg,
+          dx, dy, origImg.width, origImg.height,
+          0, 0, origImg.width, origImg.height
+        );
+
+        resolve(canvas.toDataURL("image/jpeg", 0.95));
+      };
+      padImg.onerror = reject;
+    };
+    origImg.onerror = reject;
+  });
 };;

@@ -7,7 +7,7 @@ import PrecisionStage from '../components/PrecisionStage';
 import { useEffect } from 'react';
 import { analyzeJewelryAsset, detectAnatomy, processJewelryFitting } from '../services/geminiService';
 import { getDeterministicLandmarks } from '../services/mediaPipeService';
-import { cropJewelryAsset, compressImage, surgicalJewelryCrop, blendGenerativePatch, padImageToSquare } from '../services/imageUtils';
+import { cropJewelryAsset, compressImage, surgicalJewelryCrop, blendGenerativePatch, padImageToSquare, removeSquarePadding } from '../services/imageUtils';
 
 interface LandingPageProps {
     jewelryItems: JewelryItem[];
@@ -196,17 +196,20 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
                 }
             );
 
+            // Strip the black bars off the AI output so MediaPipe maps without border-shock.
+            const unpaddedGenerativeResult = await removeSquarePadding(rawSquareResult, optimizedPerson);
+
             // --- STAGE 5: PHYSICS RESTORATION (Generative Patch Overlay) ---
             // The AI often destroys the original canvas framing/resolution.
             // We run MediaPipe on the synthesized result to find where it placed the jewelry,
             // then we perfectly patch the generated jewelry back onto the pristine original image.
-            const genMediaPipeResult = await getDeterministicLandmarks(rawSquareResult, activeCategoryValue as JewelryCategory);
+            const genMediaPipeResult = await getDeterministicLandmarks(unpaddedGenerativeResult, activeCategoryValue as JewelryCategory);
             
-            let framePerfectResult = rawSquareResult;
+            let framePerfectResult = unpaddedGenerativeResult;
             if (genMediaPipeResult) {
                 framePerfectResult = await blendGenerativePatch(
                     optimizedPerson, 
-                    rawSquareResult, 
+                    unpaddedGenerativeResult, 
                     mediaPipeResult.landmarks, 
                     genMediaPipeResult.landmarks
                 );
