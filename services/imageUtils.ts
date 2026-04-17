@@ -145,3 +145,76 @@ export const surgicalJewelryCrop = async (
     img.onerror = reject;
   });
 };
+
+export interface PaddedImageResult {
+  base64: string;
+  originalWidth: number;
+  originalHeight: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+export const padImageToSquare = async (base64: string): Promise<PaddedImageResult> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const maxDim = Math.max(img.width, img.height);
+      const canvas = document.createElement("canvas");
+      canvas.width = maxDim;
+      canvas.height = maxDim;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject("No Canvas Context");
+
+      const offsetX = Math.floor((maxDim - img.width) / 2);
+      const offsetY = Math.floor((maxDim - img.height) / 2);
+
+      ctx.fillStyle = "rgba(0,0,0,1)"; // Black pad limits hallucination vs transparent
+      ctx.fillRect(0, 0, maxDim, maxDim);
+      ctx.drawImage(img, offsetX, offsetY, img.width, img.height);
+
+      resolve({
+        base64: canvas.toDataURL("image/png"),
+        originalWidth: img.width,
+        originalHeight: img.height,
+        offsetX,
+        offsetY
+      });
+    };
+    img.onerror = reject;
+  });
+};
+
+export const cropImageToOriginalSize = async (
+  base64: string,
+  padData: PaddedImageResult
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = padData.originalWidth;
+      canvas.height = padData.originalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject("No context");
+
+      const originalMaxDim = Math.max(padData.originalWidth, padData.originalHeight);
+      const scale = img.width / originalMaxDim;
+      
+      const scaledOffsetX = padData.offsetX * scale;
+      const scaledOffsetY = padData.offsetY * scale;
+      const scaledWidth = padData.originalWidth * scale;
+      const scaledHeight = padData.originalHeight * scale;
+
+      ctx.drawImage(
+        img,
+        scaledOffsetX, scaledOffsetY, scaledWidth, scaledHeight,
+        0, 0, padData.originalWidth, padData.originalHeight
+      );
+      
+      resolve(canvas.toDataURL("image/jpeg", 0.95));
+    };
+    img.onerror = reject;
+  });
+};

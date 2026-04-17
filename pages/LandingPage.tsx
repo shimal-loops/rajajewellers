@@ -7,7 +7,7 @@ import PrecisionStage from '../components/PrecisionStage';
 import { useEffect } from 'react';
 import { analyzeJewelryAsset, detectAnatomy, processJewelryFitting } from '../services/geminiService';
 import { getDeterministicLandmarks } from '../services/mediaPipeService';
-import { cropJewelryAsset, compressImage, surgicalJewelryCrop } from '../services/imageUtils';
+import { cropJewelryAsset, compressImage, surgicalJewelryCrop, padImageToSquare, cropImageToOriginalSize } from '../services/imageUtils';
 
 interface LandingPageProps {
     jewelryItems: JewelryItem[];
@@ -133,7 +133,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
         try {
             // Use the already optimized assets
             const optimizedJewelry = targetJewelryBase64;
-            const optimizedPerson = personImage.base64;
+            
+            // PHYSICS ENFORCEMENT: Pad the original image to a perfect 1:1 square
+            // This mathematically prevents the AI from auto-cropping out of-bounds pixels
+            const squarePadData = await padImageToSquare(personImage.base64);
+            const optimizedPerson = squarePadData.base64;
 
             let dimensions = undefined;
             const meta = await fetchImageMeta(optimizedJewelry);
@@ -180,7 +184,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
 
             // --- STAGE 4: AI-GENERATIVE FITTING (Synthesis) ---
             // We favor Stage 3 (Generative) for realistic shadows, but with the CLEANED asset
-            const result = await processJewelryFitting(
+            const rawSquareResult = await processJewelryFitting(
                 optimizedPerson,
                 surgicallyCleanedAsset,
                 activeCategoryValue as JewelryCategory,
@@ -194,8 +198,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
                 }
             );
 
+            // --- STAGE 5: PHYSICS RESTORATION ---
+            // Slice the black padding back off to restore the exact original aspect ratio
+            const framePerfectResult = await cropImageToOriginalSize(rawSquareResult, squarePadData);
+
             // --- DISPLAY RESULT ---
-            setResultImage(result);
+            setResultImage(framePerfectResult);
             setResultKey(prev => prev + 1);
             setStatus(ProcessingStatus.SUCCESS);
             setRenderingData(null); 
