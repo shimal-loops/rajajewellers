@@ -7,7 +7,7 @@ import PrecisionStage from '../components/PrecisionStage';
 import { useEffect } from 'react';
 import { analyzeJewelryAsset, detectAnatomy, processJewelryFitting } from '../services/geminiService';
 import { getDeterministicLandmarks } from '../services/mediaPipeService';
-import { cropJewelryAsset, compressImage, surgicalJewelryCrop, padImageToSquare, cropImageToOriginalSize } from '../services/imageUtils';
+import { cropJewelryAsset, compressImage, surgicalJewelryCrop, blendGenerativePatch } from '../services/imageUtils';
 
 interface LandingPageProps {
     jewelryItems: JewelryItem[];
@@ -179,7 +179,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
             } : undefined;
 
             // --- STAGE 4: AI-GENERATIVE FITTING (Synthesis) ---
-            const result = await processJewelryFitting(
+            const rawSquareResult = await processJewelryFitting(
                 optimizedPerson,
                 surgicallyCleanedAsset,
                 activeCategoryValue as JewelryCategory,
@@ -193,8 +193,24 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
                 }
             );
 
+            // --- STAGE 5: PHYSICS RESTORATION (Generative Patch Overlay) ---
+            // The AI often destroys the original canvas framing/resolution.
+            // We run MediaPipe on the synthesized result to find where it placed the jewelry,
+            // then we perfectly patch the generated jewelry back onto the pristine original image.
+            const genMediaPipeResult = await getDeterministicLandmarks(rawSquareResult, activeCategoryValue as JewelryCategory);
+            
+            let framePerfectResult = rawSquareResult;
+            if (genMediaPipeResult) {
+                framePerfectResult = await blendGenerativePatch(
+                    optimizedPerson, 
+                    rawSquareResult, 
+                    mediaPipeResult.landmarks, 
+                    genMediaPipeResult.landmarks
+                );
+            }
+
             // --- DISPLAY RESULT ---
-            setResultImage(result);
+            setResultImage(framePerfectResult);
             setResultKey(prev => prev + 1);
             setStatus(ProcessingStatus.SUCCESS);
             setRenderingData(null); 

@@ -146,75 +146,119 @@ export const surgicalJewelryCrop = async (
   });
 };
 
-export interface PaddedImageResult {
-  base64: string;
-  originalWidth: number;
-  originalHeight: number;
-  offsetX: number;
-  offsetY: number;
-}
-
-export const padImageToSquare = async (base64: string): Promise<PaddedImageResult> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.src = base64;
-    img.onload = () => {
-      const maxDim = Math.max(img.width, img.height);
-      const canvas = document.createElement("canvas");
-      canvas.width = maxDim;
-      canvas.height = maxDim;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return reject("No Canvas Context");
-
-      const offsetX = Math.floor((maxDim - img.width) / 2);
-      const offsetY = Math.floor((maxDim - img.height) / 2);
-
-      ctx.fillStyle = "rgba(0,0,0,1)"; // Black pad limits hallucination vs transparent
-      ctx.fillRect(0, 0, maxDim, maxDim);
-      ctx.drawImage(img, offsetX, offsetY, img.width, img.height);
-
-      resolve({
-        base64: canvas.toDataURL("image/png"),
-        originalWidth: img.width,
-        originalHeight: img.height,
-        offsetX,
-        offsetY
-      });
-    };
-    img.onerror = reject;
-  });
-};
-
-export const cropImageToOriginalSize = async (
-  base64: string,
-  padData: PaddedImageResult
+export const blendGenerativePatch = async (
+  originalBase64: string,
+  generativeBase64: string,
+  origLandmarks: any[],
+  genLandmarks: any[]
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.src = base64;
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = padData.originalWidth;
-      canvas.height = padData.originalHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return reject("No context");
+    const origImg = new Image();
+    const genImg = new Image();
 
-      const originalMaxDim = Math.max(padData.originalWidth, padData.originalHeight);
-      const scale = img.width / originalMaxDim;
-      
-      const scaledOffsetX = padData.offsetX * scale;
-      const scaledOffsetY = padData.offsetY * scale;
-      const scaledWidth = padData.originalWidth * scale;
-      const scaledHeight = padData.originalHeight * scale;
-
-      ctx.drawImage(
-        img,
-        scaledOffsetX, scaledOffsetY, scaledWidth, scaledHeight,
-        0, 0, padData.originalWidth, padData.originalHeight
-      );
-      
-      resolve(canvas.toDataURL("image/jpeg", 0.95));
+    let loadedCount = 0;
+    const onLoad = () => {
+      loadedCount++;
+      if (loadedCount === 2) {
+        processPatch();
+      }
     };
-    img.onerror = reject;
+
+    origImg.onload = onLoad;
+    genImg.onload = onLoad;
+    origImg.onerror = reject;
+    genImg.onerror = reject;
+
+    origImg.src = originalBase64;
+    genImg.src = generativeBase64;
+
+    function processPatch() {
+      // 1. Identify Target Regions in both images
+      const origTarget = origLandmarks.find(l => l.label.startsWith('target_region'));
+      const genTarget = genLandmarks.find(l => l.label.startsWith('target_region'));
+      
+      const origLP = origLandmarks.find(l => l.label === 'left_pupil');
+      const origRP = origLandmarks.find(l => l.label === 'right_pupil');
+      
+      const genLP = genLandmarks.find(l => l.label === 'left_pupil');
+      const genRP = genLandmarks.find(l => l.label === 'right_pupil');
+
+      // Fallback: If AI destroyed tracking, we can't patch reliably. Just return original.
+      if (!origTarget || !genTarget || !origLP || !origRP || !genLP || !genRP) {
+        console.warn("[Patch] Missing landmarks, falling back to raw AI output.");
+        return resolve(generativeBase64);
+      }
+
+      // 2. Identify physical scale difference to detect if Gemini zoomed the output
+      const origPX = ((origLP.box_2d[1] + origLP.box_2d[3]) / 2 / 1000) * origImg.width;
+      const origPX2 = ((origRP.box_2d[1] + origRP.box_2d[3]) / 2 / 1000) * origImg.width;
+      const origPy = ((origLP.box_2d[0] + origLP.box_2d[2]) / 2 / 1000) * origImg.height;
+      const origPy2 = ((origRP.box_2d[0] + origRP.box_2d[2]) / 2 / 1000) * origImg.height;
+      const origPupilDist = Math.sqrt(Math.pow(origPX - origPX2, 2) + Math.pow(origPy - origPy2, 2));
+
+      const genPX = ((genLP.box_2d[1] + genLP.box_2d[3]) / 2 / 1000) * genImg.width;
+      const genPX2 = ((genRP.box_2d[1] + genRP.box_2d[3]) / 2 / 1000) * genImg.width;
+      const genPy = ((genLP.box_2d[0] + genLP.box_2d[2]) / 2 / 1000) * genImg.height;
+      const genPy2 = ((genRP.box_2d[0] + genRP.box_2d[2]) / 2 / 1000) * genImg.height;
+      const genPupilDist = Math.sqrt(Math.pow(genPX - genPX2, 2) + Math.pow(genPy - genPy2, 2));
+      
+      const scaleToMatchOriginal = origPupilDist / genPupilDist;
+
+      // 3. Find the exact center of the target regions
+      const origCenterY = ((origTarget.box_2d[0] + origTarget.box_2d[2]) / 2 / 1000) * origImg.height;
+      const origCenterX = ((origTarget.box_2d[1] + origTarget.box_2d[3]) / 2 / 1000) * origImg.width;
+      
+      const genCenterY = ((genTarget.box_2d[0] + genTarget.box_2d[2]) / 2 / 1000) * genImg.height;
+      const genCenterX = ((genTarget.box_2d[1] + genTarget.box_2d[3]) / 2 / 1000) * genImg.width;
+
+      // 4. Define Generative Patch Radius 
+      // How much area around the target to isolate? E.g., 120 pixels in gen-image scale (enough for earrings and shadows).
+      const genRadius = 150; 
+
+      // Create a temporary canvas for the masked patch
+      const patchCanvas = document.createElement('canvas');
+      patchCanvas.width = genRadius * 2;
+      patchCanvas.height = genRadius * 2;
+      const patchCtx = patchCanvas.getContext('2d');
+      if (!patchCtx) return resolve(originalBase64);
+
+      // Draw the generative image fragment into patch canvas
+      patchCtx.drawImage(
+        genImg,
+        genCenterX - genRadius, genCenterY - genRadius, genRadius * 2, genRadius * 2,
+        0, 0, genRadius * 2, genRadius * 2
+      );
+
+      // Apply soft radial gradient mask to the patch to blend seamlessly with original skin
+      patchCtx.globalCompositeOperation = 'destination-in';
+      const gradient = patchCtx.createRadialGradient(genRadius, genRadius, genRadius * 0.4, genRadius, genRadius, genRadius);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
+      gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.5)'); // Soft feathered fade
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      
+      patchCtx.fillStyle = gradient;
+      patchCtx.fillRect(0, 0, genRadius * 2, genRadius * 2);
+
+      // 5. Composite the soft patch onto the ORIGINAL image
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = origImg.width;
+      finalCanvas.height = origImg.height;
+      const finalCtx = finalCanvas.getContext('2d');
+      if (!finalCtx) return resolve(originalBase64);
+
+      finalCtx.drawImage(origImg, 0, 0);
+
+      // Calculate final mapped size on original image
+      const origPatchRadius = genRadius * scaleToMatchOriginal;
+
+      finalCtx.globalCompositeOperation = 'source-over';
+      finalCtx.drawImage(
+        patchCanvas,
+        0, 0, genRadius * 2, genRadius * 2,
+        origCenterX - origPatchRadius, origCenterY - origPatchRadius, origPatchRadius * 2, origPatchRadius * 2
+      );
+
+      resolve(finalCanvas.toDataURL("image/jpeg", 0.95));
+    }
   });
 };
