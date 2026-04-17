@@ -142,10 +142,12 @@ export const getDeterministicLandmarks = async (
         const lp = face[468]; // Left pupil
         const rp = face[473]; // Right pupil
         const chinPt = face[152]; // Chin
+        const foreheadPt = face[10]; // Top of head
 
         landmarks.push({ label: "left_pupil", box_2d: [lp.y * 1000 - 5, lp.x * 1000 - 5, lp.y * 1000 + 5, lp.x * 1000 + 5] });
         landmarks.push({ label: "right_pupil", box_2d: [rp.y * 1000 - 5, rp.x * 1000 - 5, rp.y * 1000 + 5, rp.x * 1000 + 5] });
         landmarks.push({ label: "chin", box_2d: [chinPt.y * 1000 - 5, chinPt.x * 1000 - 5, chinPt.y * 1000 + 5, chinPt.x * 1000 + 5] });
+        landmarks.push({ label: "face", box_2d: [foreheadPt.y * 1000, 0, chinPt.y * 1000, 1000] });
 
 
         // --- ASSIGN LANDMARKS ---

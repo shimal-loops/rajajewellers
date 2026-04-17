@@ -177,32 +177,21 @@ export const blendGenerativePatch = async (
       const origTarget = origLandmarks.find(l => l.label.startsWith('target_region'));
       const genTarget = genLandmarks.find(l => l.label.startsWith('target_region'));
       
-      const origLP = origLandmarks.find(l => l.label === 'left_pupil');
-      const origRP = origLandmarks.find(l => l.label === 'right_pupil');
-      
-      const genLP = genLandmarks.find(l => l.label === 'left_pupil');
-      const genRP = genLandmarks.find(l => l.label === 'right_pupil');
+      const origFace = origLandmarks.find(l => l.label === 'face');
+      const genFace = genLandmarks.find(l => l.label === 'face');
 
       // Fallback: If AI destroyed tracking, we can't patch reliably. Just return original.
-      if (!origTarget || !genTarget || !origLP || !origRP || !genLP || !genRP) {
+      if (!origTarget || !genTarget || !origFace || !genFace) {
         console.warn("[Patch] Missing landmarks, falling back to raw AI output.");
         return resolve(generativeBase64);
       }
 
       // 2. Identify physical scale difference to detect if Gemini zoomed the output
-      const origPX = ((origLP.box_2d[1] + origLP.box_2d[3]) / 2 / 1000) * origImg.width;
-      const origPX2 = ((origRP.box_2d[1] + origRP.box_2d[3]) / 2 / 1000) * origImg.width;
-      const origPy = ((origLP.box_2d[0] + origLP.box_2d[2]) / 2 / 1000) * origImg.height;
-      const origPy2 = ((origRP.box_2d[0] + origRP.box_2d[2]) / 2 / 1000) * origImg.height;
-      const origPupilDist = Math.sqrt(Math.pow(origPX - origPX2, 2) + Math.pow(origPy - origPy2, 2));
-
-      const genPX = ((genLP.box_2d[1] + genLP.box_2d[3]) / 2 / 1000) * genImg.width;
-      const genPX2 = ((genRP.box_2d[1] + genRP.box_2d[3]) / 2 / 1000) * genImg.width;
-      const genPy = ((genLP.box_2d[0] + genLP.box_2d[2]) / 2 / 1000) * genImg.height;
-      const genPy2 = ((genRP.box_2d[0] + genRP.box_2d[2]) / 2 / 1000) * genImg.height;
-      const genPupilDist = Math.sqrt(Math.pow(genPX - genPX2, 2) + Math.pow(genPy - genPy2, 2));
+      // We use the full face bounding box height for a highly stable profile-agnostic scale metric.
+      const origFaceHeightPx = ((origFace.box_2d[2] - origFace.box_2d[0]) / 1000) * origImg.height;
+      const genFaceHeightPx = ((genFace.box_2d[2] - genFace.box_2d[0]) / 1000) * genImg.height;
       
-      const scaleToMatchOriginal = origPupilDist / genPupilDist;
+      const scaleToMatchOriginal = origFaceHeightPx / genFaceHeightPx;
 
       // 3. Find the exact center of the target regions
       const origCenterY = ((origTarget.box_2d[0] + origTarget.box_2d[2]) / 2 / 1000) * origImg.height;
@@ -212,8 +201,13 @@ export const blendGenerativePatch = async (
       const genCenterX = ((genTarget.box_2d[1] + genTarget.box_2d[3]) / 2 / 1000) * genImg.width;
 
       // 4. Define Generative Patch Radius 
-      // How much area around the target to isolate? E.g., 120 pixels in gen-image scale (enough for earrings and shadows).
-      const genRadius = 150; 
+      // Calculate a VERY TIGHT radius based strictly on the generated target bounds 
+      // to eliminate large skin halos or mismatched skin colors from the generative AI.
+      const targetHeightPx = ((genTarget.box_2d[2] - genTarget.box_2d[0]) / 1000) * genImg.height;
+      const targetWidthPx = ((genTarget.box_2d[3] - genTarget.box_2d[1]) / 1000) * genImg.width;
+      
+      // We set the radius to exactly wrap the bounding box + 30% padding for native drop shadows.
+      const genRadius = Math.max(targetWidthPx, targetHeightPx) * 1.3; 
 
       // Create a temporary canvas for the masked patch
       const patchCanvas = document.createElement('canvas');
@@ -233,8 +227,8 @@ export const blendGenerativePatch = async (
       patchCtx.globalCompositeOperation = 'destination-in';
       const gradient = patchCtx.createRadialGradient(genRadius, genRadius, genRadius * 0.4, genRadius, genRadius, genRadius);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
-      gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.5)'); // Soft feathered fade
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.8)'); // High opacity over the metal
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)'); // Sharp falloff
       
       patchCtx.fillStyle = gradient;
       patchCtx.fillRect(0, 0, genRadius * 2, genRadius * 2);
