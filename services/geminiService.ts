@@ -271,8 +271,8 @@ ${spatialGuidance}
 
 ### VISUAL INTEGRATION & FRAME COMPLIANCE:
 ${categoryRules}
-• FULL FRAME PRESERVATION: You MUST output the ENTIRE PERSON_IMAGE. Do not crop the forehead, hair, or any part of the background.
-• ASPECT RATIO: Maintain the exact aspect ratio of the original Person Image.
+• FULL FRAME PRESERVATION (CRITICAL): You MUST output the ENTIRE PERSON_IMAGE. You are explicitly FORBIDDEN from cropping the original image. 
+• NO SQUARE CROPPING: Do NOT default to a 1:1 square output unless the source is square. You MUST maintain the exact original aspect ratio (e.g. vertical portrait, widescreen).
 • LIGHTING: Apply realistic lighting, matching the face's specular highlights and environmental tone.
 • CONTACT SHADOW: Apply a subtle 20% opacity shadow where the jewelry touches the skin.
 
