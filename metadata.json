@@ -1,0 +1,7 @@
+{
+  "name": "JewelTry AI - Virtual Jewelry Fitting",
+  "description": "Upload a portrait and a jewelry piece to see it virtually applied using the latest Gemini Vision AI. Perfect for visualizing necklaces, earrings, and more.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
