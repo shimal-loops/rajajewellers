@@ -255,4 +255,30 @@ export const blendGenerativePatch = async (
       resolve(finalCanvas.toDataURL("image/jpeg", 0.95));
     }
   });
-};
+}
+
+export const padImageToSquare = async (base64: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const dim = Math.max(img.width, img.height);
+      const canvas = document.createElement("canvas");
+      canvas.width = dim;
+      canvas.height = dim;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(base64);
+
+      // Fill with purely black padding
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, dim, dim);
+
+      const dx = (dim - img.width) / 2;
+      const dy = (dim - img.height) / 2;
+      ctx.drawImage(img, dx, dy, img.width, img.height);
+
+      resolve(canvas.toDataURL("image/jpeg", 1.0));
+    };
+    img.onerror = reject;
+  });
+};;

@@ -7,7 +7,7 @@ import PrecisionStage from '../components/PrecisionStage';
 import { useEffect } from 'react';
 import { analyzeJewelryAsset, detectAnatomy, processJewelryFitting } from '../services/geminiService';
 import { getDeterministicLandmarks } from '../services/mediaPipeService';
-import { cropJewelryAsset, compressImage, surgicalJewelryCrop, blendGenerativePatch } from '../services/imageUtils';
+import { cropJewelryAsset, compressImage, surgicalJewelryCrop, blendGenerativePatch, padImageToSquare } from '../services/imageUtils';
 
 interface LandingPageProps {
     jewelryItems: JewelryItem[];
@@ -179,8 +179,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ jewelryItems }) => {
             } : undefined;
 
             // --- STAGE 4: AI-GENERATIVE FITTING (Synthesis) ---
+            // Pad to 1:1 specifically for Gemini to avoid horizontal stretch distortion
+            const paddedForGenerative = await padImageToSquare(optimizedPerson);
+
             const rawSquareResult = await processJewelryFitting(
-                optimizedPerson,
+                paddedForGenerative,
                 surgicallyCleanedAsset,
                 activeCategoryValue as JewelryCategory,
                 correctedDimensions,
